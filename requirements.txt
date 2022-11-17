@@ -1,0 +1,11 @@
+ipython
+pandas
+keras
+numpy
+tensorflow
+matplotlib
+h5py
+progressbar
+notebook
+imblearn
+watermark
