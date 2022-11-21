@@ -1,21 +1,84 @@
 import numpy as np
 from matplotlib import pyplot as plt
+from keras import models
+from keras import layers
+from tensorflow.keras.layers import BatchNormalization
+import progressbar
 
-def prepare_data(dataset):
+def set_seed():
+
+    # This routine enables to set all the seeds to get reproducible results
+    # with your python script on one computer's/laptop's CPU
+
+    # Seed value
+    # Apparently you may use different seed values at each stage
+    seed_value = 42
+
+    # 1. Set the `PYTHONHASHSEED` environment variable at a fixed value
+    import os
+    os.environ['PYTHONHASHSEED']=str(seed_value)
+
+    # 2. Set the `python` built-in pseudo-random generator at a fixed value
+    import random
+    random.seed(seed_value)
+
+    # 3. Set the `numpy` pseudo-random generator at a fixed value
+    import numpy as np
+    np.random.seed(seed_value)
+
+    # 4. Set the `tensorflow` pseudo-random generator at a fixed value
+    import tensorflow as tf
+    tf.random.set_seed(seed_value)
+    # for later versions: 
+    # tf.compat.v1.set_random_seed(seed_value)
+
+    # 5. Configure a new global `tensorflow` session
+    from keras import backend as K
+    # for later versions:
+    session_conf = tf.compat.v1.ConfigProto(intra_op_parallelism_threads=1, inter_op_parallelism_threads=1)
+    sess = tf.compat.v1.Session(graph=tf.compat.v1.get_default_graph(), config=session_conf)
+    tf.compat.v1.keras.backend.set_session(sess)
+
+def build_model(n_layers=2, n_nodes=4):
+    model = models.Sequential()
+    model.add (BatchNormalization(input_dim = 2))
+    for i in range(n_layers):
+        model.add (layers.Dense(n_nodes, activation="relu"))
+    model.add (layers.Dense(1, activation="relu"))
+    #model.add (layers.Dense(1, activation="sigmoid"))
+    model.compile(optimizer = "rmsprop", loss='mse', metrics=["mape", "mse"])
+    return model
+
+def prepare_targets(ds):
+    _ds = ds.copy()
+    M, N = _ds.shape
+
+    _ds[:,0] = np.log10(_ds[:,0])
+    _ds[:,1] = np.log10(_ds[:,1])
+
+    #norm = 1.49e26
+    #_ds[:,N-1] *= norm
+
+    _ds[:,N-1] = -np.log10(_ds[:,N-1])
+    _ds[:,N-1] = (_ds[:,N-1]-min(_ds[:,N-1])) / (max(_ds[:,N-1])-min(_ds[:,N-1]))
+
+    return _ds
+
+def train_test_split(ds):
 
     # Get the dimensions
-    M, N = dataset.shape
+    _ds = ds.copy()
+    M, N = _ds.shape
 
     # Shuffle the data
-    np.random.seed(42)
-    np.random.shuffle(dataset)
-    iX = np.arange(dataset.shape[0])
+    np.random.shuffle(_ds)
+    iX = np.arange(_ds.shape[0])
     np.random.shuffle(iX)
-    dataset = dataset[iX]
+    _ds = _ds[iX]
 
     # Assign data and target
-    data = dataset[:,0:N-1]
-    targets = dataset[:,N-1]
+    data = _ds[:,0:N-1]
+    targets = _ds[:,N-1]
 
     # Split train, validation, test (70%,15%,15%)
     train_split, val_split = 0.70, 0.85
@@ -32,10 +95,6 @@ def prepare_data(dataset):
     train_targets = targets[:id1]
     val_targets = targets[id1:id2]
     test_targets = targets[id2:]
-
-    # Normalisation of target
-    norm = 1.49e26
-    dataset[:,N-1] *= norm
 
     if np.isnan(np.min(targets)) == False:
         return train_data, train_targets, val_data, val_targets, test_data, test_targets
@@ -55,7 +114,8 @@ def load_data(name):
 
 def balance_data(class_data, nbins):
     y = class_data[:,2]
-    n, edges, _ = plt.hist(y, nbins, color = 'indianred', alpha=0.5, label='Osiris')
+    n, edges, _ = plt.hist(y, nbins, color = 'indianred', alpha=0.5, label='original')
+    plt.close()
     n_max = int(n.max())
     data = []
     bar = progressbar.ProgressBar(maxval=len(class_data), 
@@ -74,11 +134,15 @@ def balance_data(class_data, nbins):
         bar.update(k+1)
     bar.finish()
 
-    return np.array(data)
+    data = np.array([data])
+    data = data[0,:,:]
+
+    return data
 
 def balance_data2(class_data, nbins, ratio):
     y = class_data[:,2]
     n, edges, _ = plt.hist(y, nbins, color = 'indianred', alpha=0.5, label='Osiris')
+    plt.close()
     n_max = int(n.max())*ratio
     data = []
     bar = progressbar.ProgressBar(maxval=len(class_data), 
@@ -112,8 +176,8 @@ def plot_history(history):
     loss = history.history['loss']
     val_loss = history.history['val_loss']
 
-    accuracy = history.history['mae']
-    val_accuracy = history.history['val_mae']
+    accuracy = history.history['mape']
+    val_accuracy = history.history['val_mape']
 
 
     epochs = range(1, len(loss) + 1)
