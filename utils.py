@@ -4,6 +4,7 @@ from keras import models
 from keras import layers
 from tensorflow.keras.layers import BatchNormalization
 import progressbar
+import struct
 
 def set_seed():
 
@@ -39,28 +40,44 @@ def set_seed():
     sess = tf.compat.v1.Session(graph=tf.compat.v1.get_default_graph(), config=session_conf)
     tf.compat.v1.keras.backend.set_session(sess)
 
-def build_model(n_layers=2, n_nodes=4):
+def build_model_tcs(n_layers=2, n_nodes=4):
     model = models.Sequential()
     model.add (BatchNormalization(input_dim = 2))
     for i in range(n_layers):
         model.add (layers.Dense(n_nodes, activation="relu"))
     model.add (layers.Dense(1, activation="relu"))
-    #model.add (layers.Dense(1, activation="sigmoid"))
     model.compile(optimizer = "rmsprop", loss='mse', metrics=["mape", "mse"])
     return model
 
-def prepare_targets(ds):
+def build_model_cdf(n_layers=2, n_nodes=4):
+    model = models.Sequential()
+    model.add (BatchNormalization(input_dim = 3))
+    for i in range(n_layers):
+        model.add (layers.Dense(n_nodes, activation="relu"))
+    model.add (layers.Dense(1, activation="sigmoid"))
+    model.compile(optimizer = "rmsprop", loss='binary_crossentropy', metrics=['accuracy'])
+    return model
+
+def prepare_targets_tcs(ds):
     _ds = ds.copy()
     M, N = _ds.shape
 
     _ds[:,0] = np.log10(_ds[:,0])
     _ds[:,1] = np.log10(_ds[:,1])
 
-    #norm = 1.49e26
-    #_ds[:,N-1] *= norm
-
     _ds[:,N-1] = -np.log10(_ds[:,N-1])
     _ds[:,N-1] = (_ds[:,N-1]-min(_ds[:,N-1])) / (max(_ds[:,N-1])-min(_ds[:,N-1]))
+
+    return _ds
+
+def prepare_targets_cdf(ds):
+    _ds = ds.copy()
+    M, N = _ds.shape
+
+    _ds[:,0] = np.log10(_ds[:,0])
+    _ds[:,1] = np.log10(_ds[:,1])
+    _ds[:,3] = _ds[:,3] - _ds[:,2]
+    _ds[:,3] = (_ds[:,3]-min(_ds[:,3])) / (max(_ds[:,3])-min(_ds[:,3]))
 
     return _ds
 
@@ -99,7 +116,7 @@ def train_test_split(ds):
     if np.isnan(np.min(targets)) == False:
         return train_data, train_targets, val_data, val_targets, test_data, test_targets
 
-def plot_histo(x, y, bins,logscale):
+def plot_histo(y, bins,logscale):
     y = np.array(y)
     plt.hist(y, bins, color = 'indianred', alpha=0.5, label='Osiris')
     plt.legend(loc='upper right')
@@ -110,10 +127,10 @@ def plot_histo(x, y, bins,logscale):
     plt.show()
 
 def load_data(name):
-     return np.loadtxt(name, delimiter=',')
+    return np.loadtxt(name, delimiter=',')
 
 def balance_data(class_data, nbins):
-    y = class_data[:,2]
+    y = class_data[:,-1]
     n, edges, _ = plt.hist(y, nbins, color = 'indianred', alpha=0.5, label='original')
     plt.close()
     n_max = int(n.max())
@@ -140,7 +157,7 @@ def balance_data(class_data, nbins):
     return data
 
 def balance_data2(class_data, nbins, ratio):
-    y = class_data[:,2]
+    y = class_data[:,-1]
     n, edges, _ = plt.hist(y, nbins, color = 'indianred', alpha=0.5, label='Osiris')
     plt.close()
     n_max = int(n.max())*ratio
@@ -172,7 +189,7 @@ def balance_data2(class_data, nbins, ratio):
     
     return np.array(data)
 
-def plot_history(history):
+def plot_history_tcs(history):
     loss = history.history['loss']
     val_loss = history.history['val_loss']
 
@@ -201,3 +218,50 @@ def plot_history(history):
     ax2.legend(lns, labs, loc="center right")
     fig.tight_layout()
     fig.show()
+
+def plot_history_cdf(history):
+    loss = history.history['loss']
+    val_loss = history.history['val_loss']
+
+    accuracy = history.history['accuracy']
+    val_accuracy = history.history['val_accuracy']
+
+
+    epochs = range(1, len(loss) + 1)
+    fig, ax1 = plt.subplots()
+
+    l1 = ax1.plot(epochs, loss, 'bo', label='Training loss')
+    vl1 = ax1.plot(epochs, val_loss, 'b', label='Validation loss')
+    ax1.set_title('Training and validation loss')
+    ax1.set_xlabel('Epochs')
+    ax1.set_ylabel('Loss (mape)')
+#    ax1.set_yscale('log')
+
+    ax2 = ax1.twinx()
+    ac2= ax2.plot(epochs, accuracy, 'o', c="red", label='Training acc')
+    vac2= ax2.plot(epochs, val_accuracy, 'r', label='Validation acc')
+    ax2.set_ylabel('accuracy')
+#    ax2.set_yscale('log')
+
+    lns = l1 + vl1 + vac2 + ac2
+    labs = [l.get_label() for l in lns]
+    ax2.legend(lns, labs, loc="center right")
+    fig.tight_layout()
+    fig.show()
+
+
+def balance_data3(dataset, nbins):
+
+    M, N = dataset.shape
+    y = dataset[:,-1]
+    dy = (max(y) - min(y)) / y.shape
+    edges = np.linspace(min(y)-dy/2., max(y)+dy/2., nbins+1)
+
+    _ds = list()
+    for i in range(nbins):
+        indexes = np.array([ j for j in range(M) if (y[j]>=edges[i]) and (y[j]<edges[i+1]) ])
+        indexes_balanced = np.random.choice(indexes, int(M/nbins))
+        for index in indexes_balanced:
+           _ds.append(dataset[index,:])
+
+    return np.array(_ds)
